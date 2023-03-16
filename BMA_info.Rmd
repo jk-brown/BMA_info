@@ -275,7 +275,7 @@ ____
 
 # Example to see the impact of running 1000 models
 
-```{r}
+```{r, eval=FALSE}
 # observed data
 observed_data <- rnorm(100, mean = 350, sd = 20)
 
@@ -299,7 +299,7 @@ results <- as.data.frame(results[order(results[ ,1]), ])
 
 ```
 
-```{r}
+```{r, eval=FALSE}
 
 bmao_large <- bms(results,
              mprior = "uniform", 
@@ -314,14 +314,14 @@ plotConv(bmao_large)
 
 ```
 
-```{r}
+```{r, eval=FALSE}
 
 coeff_large <- coef(bmao_large, condi.coefs = T)
 
 ```
 What are the posterior model probabilities:
 
-```{r}
+```{r, eval=FALSE}
 
 # what are the top models
 topmodels <- topmodels.bma(bmao_large)
@@ -333,7 +333,7 @@ pmp_vals <- data.frame(pmp.bma(bmao_large, oldstyle = T))
 
 Line 285 is an example of a function that will 
 
-```{r}
+```{r, eval=FALSE}
 pmp_weights <- data.frame(
   wts = sapply(rownames(coeff_large), function(m) {
   pmpmodel(bmao_large, model = m)
@@ -362,7 +362,7 @@ run_wts <- pmp_wts(coeff_large, bmao_large)
 ```
 
 Code in line 322 and 325 may be important as pieces to combine the weights to `iterate_hector` outputs.
-```{r}
+```{r, eval=FALSE}
 library(ggplot2)
 library(tidyverse)
 
@@ -393,7 +393,7 @@ wt_projected <- projected %>%
 
 # Using a Hector output 
 
-```{r}
+```{r, eval=FALSE}
 # read in example Hector run
 hector_data <- read.csv("data/hector_result.csv")
 
@@ -423,7 +423,7 @@ bma_data <- merge(observed, test, by = "year")[, c(-1, -2)]
 
 That is very chaotic but it gets us what we need which is a df of co2 values with observed data in column 1.
 
-```{r}
+```{r, eval=FALSE}
 h_bmao <- bms(bma_data,
               mprior = "unifrom",
               user.int = F)
@@ -432,7 +432,7 @@ h_bmao <- bms(bma_data,
 
 What do the coefficients look like
 
-```{r}
+```{r, eval=FALSE}
 
 h_coeff <- coef(h_bmao)
 
@@ -441,14 +441,14 @@ print(h_coeff)
 
 What are the PMPs:
 
-```{r}
+```{r, eval =FALSE}
 
 model_PMPs <- pmp.bma(h_bmao, oldstyle = T)
 
 head(model_PMPs)
 ```
 
-```{r}
+```{r,eval=FALSE}
 # this is the PMP scalar for model 3 (top model)
 mod3 <- pmpmodel(bmao2, model = "mod3")
 
