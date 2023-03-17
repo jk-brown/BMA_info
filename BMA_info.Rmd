@@ -262,13 +262,28 @@ summary(fls1)
 
 When we view the `summary` information of the bmao we can check the **convergence**. Convergence is the point at which the MCMC algorithm has run long enough to produce samples that are representative of the target posterior distribution. At this point, the samples generated can be used for inference like calculating model probabilities. 
 
-To assess the convergence between MCMC PMPs and analytical PMPs, we can inspect the correlation between MCMC and analytical PMPs by looking at `Corr PMP` in the summary. When this correlation is high, we can be confident that the samples are coming from the intended distribution. The lower this correlation, it is likely there is a lower the degree of convergence. 
+To assess the convergence between MCMC PMPs and analytical PMPs, we can inspect the correlation between MCMC and analytical PMPs by looking at `Corr PMP` in the summary. When this correlation is high, we can be confident that the samples are coming from the intended distribution. The lower this correlation, it is likely there is a lower the degree of convergence. When convergence has not been reached, samples generated from the MCMC may be biased or not representative of the true posterior distribution. This can lead to incorrect estimates of model parameters, including posterior mean and PMPs. 
+
+*From other online resources*: It may be important to note that the convergence is dependent on a number of factors including the number or iterations or information about priors. For example, if a model is run and the output has a low degree of convergence, you may need to run more iterations. Or, if you are using an informative prior, a good degree of convergence and accurate estimates could be achieved at a reduced number of iterations. -- This is why it will be important to understand the g-priors, some results in better convergence with lower iterations which saves computing speed, but we want to make sure the results are accurate.  
+
+Convergence can be visualized via plotting:
 
 ```{r}
 
 plotConv(fls1)
 
 ```
+
+This plot represents the actual distribution of both analytical and MCMC concepts. 
+
+The plot represents the index of models ranked by their analytical PMPs (red line) and plots the MCMC iteration counts. If there is good convergence, there should be a correlation between the analytical PMPs and the MCMC iteration counts, meaning that the MCMC iterations are producing a sample reflective of the posterior distribution.
+
+This is called a trace plot and is commonly used for visual inspection of convergence of the MCMC sample algorithm.
+
+## Analytical vs. MCMC Likelihoods
+
+The more complicated the distribution of marginal likelihoods, the more difficulties the MCMC sampler will meet before converging to a good approximation of PMPs. 
+ -**This is something we may have to deal with because of the high-dimensional nature of the ensembles we are running the BMA on.** 
 
 # Below this line I have not have not thought enough about
 ____
