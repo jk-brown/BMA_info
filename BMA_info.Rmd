@@ -284,6 +284,42 @@ This is called a trace plot and is commonly used for visual inspection of conver
 
 The more complicated the distribution of marginal likelihoods, the more difficulties the MCMC sampler will meet before converging to a good approximation of PMPs. 
  -**This is something we may have to deal with because of the high-dimensional nature of the ensembles we are running the BMA on.** 
+ 
+The quality of approximation can be inferred from the number of times a model got drawn vs. the actual marginal likelihoods.
+
+For model convergence and some of the posterior statistics,`bms` retains only the top models (highest PMP) models during iteration - this is indicated with `nmodel`. **I can see this being a potential challenge for our intended use of `bms`. What happens if one of the models we want a weight for is no in the top `nmodels` we indicate? Do we increase our `nmodel` number? Do we contend that the model is filtered out for not having a high enough weight?** It is also important to remember that computation time will increase with the number of `nmodels` kept. 
+
+If `nmodels` keeps a sufficient number of 'top' models, they can cover most of the posterior model mass - if this is the case, it is feasible to to base posterior stats on analytical likelihoods rather than MCMC frequencies.
+
+We can view the posterior model proababilities in `bms` using `pmp.bma`. This will display:
+
+ * **analytical PMPs** (`PMP (Exact)`), which are calculated from comparing the analytical likelihoods of the best models.
+ 
+ * **MCMC-based PMPs** (`PMP (MCMC)`) - which are derived from the number of iteration counts.
+
+Here is an example of viewing the top 5 models in our example:
+
+```{r}
+
+pmp.bma(fls1)[1:5, ]
+
+```
+Both columns should sum up to the same number. We can use the sum (`colSums`) to determine how much of the total posterior model mass is accounted for by the top models we saved (`nmodels`).
+
+```{r}
+
+colSums(pmp.bma(fls1))
+
+```
+Here we see that the top 2000 models account for ~41% of the posterior model mass. 
+
+This provides a rough approximation of posterior results that might or might not be better than the MCMC-based results.
+
+## Analytical vs MCMC results?
+
+According to the `BMS` reference manual, the preference of analytical or MCMC-based results is a 'matter of taste'. However, the literature prefers coefficients the analytical way. 
+
+Some of concerns outlined above might also need to be considered when determining whether to use MCMC or analytical posterior results. 
 
 # Below this line I have not have not thought enough about
 ____
