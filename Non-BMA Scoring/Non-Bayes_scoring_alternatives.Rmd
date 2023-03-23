@@ -1,0 +1,231 @@
+---
+title: "Non-Bayes Scoring Options"
+author: "Joe Brown"
+date: "2023-03-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Using KS test as possible scoring metric
+
+The KS test (Kolmogorov-Smirnov Test) is a frequentist approach used to determine if a sample comes from a population with a specific distribution. Historically it has been used to test whether the distribution of a data set comes from a normal distribution. It has also been used as a goodness-of-fit test.
+
+A two-sample KS test uses the null hypothesis that both groups being compared were sampled from populations with the same distribution. Two-sample KS tests use empirical cumulative density functions (eCDF). 
+
+The test statistic (D) is the maximum difference between the two eCDFs (i.e., the difference of the eCDFs at the furthest point). Here is a diagram to visualize the test statistic:
+
+![Figure 1 Example visualization of the KS test statistic](figures/ks_d_two_sample.png){width="50%"}
+
+Exact p-values can be computed for small sample sizes. Alternatively, Monte Carlo simulated p-values can be computed. In this method, a random sample of data sets (`B`) is generated from a uniform distribution with the same sample size as the data sets being compared (modeled vs observed data). The KS test is then performed on each random sample, and the proportion of test statistics (D) that are at least as extreme as the observed test statistic is calculated - this proportion is the p-value estimate. 
+
+The p-value is thus an estimate of the number of times the simulated data sets with a maximum difference equal to ore greater than the maximum difference (D) of the eCDFs being tested. If the p-value is large, then we favor the null hypothesis that the model predicted sample and observed data sample come from the same distribution, and thus the model may be a good fit for the data.
+
+Here is an example of eCDFs for Hector CO2 data plotted against the eCDF of the observed data. The black line represents the observed CO2 data, the red line represents model projected values that are not a good fit (higher max D), and blue line represents model projected values that are a good fit (lower max D). 
+
+```{r}
+## Reading in sample data 
+data2 <- read.csv("data/new_hector_data.csv")[, -1]
+
+# obs data is identical to the observed CO2 data stored in matilda 
+obs <- read.csv("data/co2_obs.csv")[, -1]
+
+```
+
+```{r, Figure 2}
+
+# compute eCDFs for example 
+ecdf_obs <- ecdf(obs$co2_ppm)
+ecdf_7 <- ecdf(data2$run7)
+ecdf_10 <- ecdf(data2$run10)
+
+# Plot eCDFs against each other
+plot(ecdf_obs, verticals=TRUE, do.points=FALSE)
+plot(ecdf_7, verticals=TRUE, do.points=FALSE, add=TRUE, col='red')
+plot(ecdf_10, verticals=TRUE, do.points=FALSE, add=TRUE, col='blue')
+
+```
+
+A KS test can be run using `ks.test` in the `stats` package.
+
+As an example, I show how we can use an `iterate_hector` output to calculate D and p-values to quantify similarity between model projected variables and observed variables.
+
+```{r}
+## Reading in sample data 
+# hector_data is identical to an iterate_hector output
+hector_data <- read.csv("data/hector_result.csv")[, -1]
+```
+
+
+```{r}
+## For the below function:
+# x = hector output df
+# obs = observed data
+ks_score <- function(x, obs) {
+  
+  # split the hector data by run number and store in run_list
+  run_list <- split(x, x$run_number)
+  
+  # for every data frame in run_list, compute results of a ks.test
+  # comparing co2 values in each df with the CO2 values in the
+  # observed data
+  result_list <- lapply(run_list, function(df) {
+    ks.test(df$value, obs$co2_ppm, 
+            simulate.p.value = T,
+            B = 10000)
+  })
+  
+  # takes the ks.test result_list and creates a data frame to store the test 
+  # statistic (D [1]) and p-value (p_val [2]) in a df and then binds the list 
+  # of dfs
+  results <- do.call(rbind,
+                     lapply(result_list,
+                            function(x)
+                              data.frame(D = x[1],
+                                         p_val = x[2])))
+  
+  # Return the results
+  return(results)
+}
+```
+
+In the function above I set `simulate.p.value = T` and set the Monte Carlo replicate number to 10000 with `B = 10000`.
+
+When I run the above function with our data, the result will be a df with as many rows as there are runs in the iterate_hector result. For each run I save the D and p-value of the KS test between each run and the observed data.
+
+```{r}
+# Run ks_score() with example data
+ks_score <- ks_score(hector_data, obs)
+
+# Add run numbers for merge to full data frame
+ks_score$run_number <- 1:nrow(ks_score)
+
+# Merge D and p-values to hector_data by run_number 
+hector_data.ks <- merge(hector_data, ks_score, by = "run_number")
+
+# values extracted from ks test
+ks_score
+
+# what the final hector data looks like
+head(hector_data.ks)
+```
+
+After running the function, I merge the test statistics (D) and p-values to the Hector data frame.
+
+Here I plot the `ks_scores`. I plot all runs and color them based on their p-values. I color the observed data in red to show how runs with data more similar to the observed data have higher p-values (lower maximum D).
+
+```{r, Figure 3}
+library(ggplot2)
+plot_ks <- ggplot(data = hector_data.ks) +
+  geom_line(aes(x = year, y = value, 
+                group = run_number,
+                color = p.value),
+            linewidth = 1)+
+  scale_color_gradient(high = "dodgerblue4", low = 'lightblue1') +
+  geom_line(data = obs, aes(x = year, y = co2_ppm),
+            color =  'red',
+            linewidth = 1) +
+  theme_light()
+plot_ks
+```
+
+In the above figure, the run that is nearly identical to the observed data (run_10) has a p-value = 1.0 and is the blue eCDF that is compared to the observed data (black) in Figure 2. 
+
+Similarly, that lightest blue line in the above figure is run_7 and has a p-value = 0.0. It is the red line in the eCDF in figure 2.
+
+This shows that projected data more similar to observed data will have higher p-values, and projected data less similar to observed data have lower p-values. 
+
+____
+
+# Using CMV test as possible scoring metric
+
+The CMV test (Cramer-von Mises test) is a refined alternative to the KS test. It is often favored over the KS test because it is generally considered to be more powerful.
+
+It is used in a similar way, historically as a goodness-of-fit test. When two eCDF samples are provided, the CMV test provides a test statistic and estimated p-value to provide evidence for whether the samples come from the same distribution.
+
+The CVM test improves on the KS test by taking the sum of the differences at each point in the joint sample, rather than just at the maximum distance.
+
+Compare this image to figure 1 to visualize the difference:
+
+![Figure 4 Example visualization of calculation of CVM test statistic](figures/cvm_test_stat.png){width="50%"}
+
+To calculate the p-value for the CVM test, the observed CVM test statistic is compared to a distribution of test statistics from a sample produced by some number of bootstrap iterations. The p-value is the proportion of of bootstrapped sample that have a CVM test stat that is as extreme or more extreme than the observed test statistic. *May need to think about this a little more.*
+
+Below I write a function that follows the same design as the `ks_score` code above to handle an `iterate_hector` result as the input with some observed data (can be viewed as criteria).
+
+There are a few R packages with CVM functions. Here, I am using the R package called `twosamples`, which also has a function for a KS test.
+
+```{r}
+library(twosamples)
+
+## Function just like above except using cvm_test() instead of ks.test()
+cvm_score <- function(x, obs) {
+  # split the hector data by run number and store in run_list
+  run_list <- split(x, x$run_number)
+  
+  # for every data frame in run_list, compute results of a ks.test
+  # comparing co2 values in each df with the CO2 values in the
+  # observed data
+  result_list <- lapply(run_list, function(df) {
+    cvm_test(df$value, obs$co2_ppm,
+             nboots = 10000)
+  })
+  
+  # takes the ks.test result_list and creates a data frame to store the test 
+  # statistic (D [1]) and p-value (p_val [2]) in a df and then binds the list 
+  # of dfs
+  results <- do.call(rbind,
+                     lapply(result_list,
+                            function(x)
+                              data.frame(Stat = x[1],
+                                         p_val = x[2])))
+  
+  # Return the results
+  return(results)
+}
+```
+
+In the function above I highlight that I want to run 10000 bootstrap iterations (`nboots = 10000`).
+
+```{r}
+# Run ks_score() with example data
+cvm_score <- cvm_score(hector_data, obs)
+
+# Add run numbers for merge to full data frame
+cvm_score$run_number <- 1:nrow(cvm_score)
+
+# Merge D and p-values to hector_data by run_number 
+hector_data.cvm <- merge(hector_data, cvm_score, by = "run_number")
+
+# values extracted from ks test
+cvm_score
+
+# what the final hector data looks like
+head(hector_data.cvm)
+```
+
+Our results from the df of cvm_scores provides the CVM test statistic and the calculated p-values.
+
+I merge the test statistics (Stat) and p-values (p_val) to the Hector data frame.
+
+Similar to figure 3 above, I can plot `cvm_scores`. When I plot all runs and color them based on their p-values, we can see that model runs with high p-values from the CVM analysis are closer to the observed data (red) and are darker shades of blue. 
+
+```{r}
+plot_cvm <- ggplot(data = hector_data.cvm) +
+  geom_line(aes(x = year, y = value, 
+                group = run_number,
+                color = p_val),
+            linewidth = 1)+
+  scale_color_gradient(high = "dodgerblue4", low = 'lightblue1') +
+  geom_line(data = obs, aes(x = year, y = co2_ppm),
+                color =  'red',
+                linewidth = 1) +
+  theme_light()
+plot_cvm
+```
+
+When we compare this figure 5 with figure 3 and compare the ks_score p-values with the cvm_score p-values we get more strict p-values produced with CVM, likely because of the increased information gained by taking the sum of the differences at each point rather than relying on the max difference (D).
+
+____
