@@ -1,0 +1,122 @@
+---
+title: "Random Forests"
+author: "Joe Brown"
+date: "2023-03-24"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Random Forests
+
+Attempting to use random forest model to weight models with predicted data against observed data.
+
+Below I build a data frame (`data_t`), which has observed data and predicted data the represent model iterations. The predictaed data strays increasingly further away from the observed data to try and test whether predictions less similar to observed data produce lower weights.
+
+```{r, message=FALSE}
+library(tidyverse)
+library(randomForest)
+
+# Building df with 4 models that incrementally drift from the observed data
+data_t <- tibble(
+  observed = c(333, 350, 360, 400, 402, 418, 499, 508, 510, 520),
+  run1 = observed + 2,
+  run2 = observed + 7,
+  run3 = observed + 13,
+  run4 = observed + 20)
+
+```
+
+Below I run the forest model with `ntree = 1000` and then use the `IncMSE` values to caluclate a normalized weight for each model. All weight sum to 1.
+
+I then take a few steps to construct a dataframe that is similar to a final hector output - `data_result`.
+
+```{r}
+set.seed(seed = 1000)
+
+# Run the random forest model
+rf <- randomForest(observed ~ ., data = data_t, ntree = 1000, importance = T)
+
+# Extract the importance values
+importance_val <- data.frame(importance(rf))
+
+# Computing weights from the IncMSE values
+importance_val$wt <- importance_val$X.IncMSE / sum(importance_val$X.IncMSE)
+
+# gather data
+data_long <- gather(data_t[-1])
+
+# Add year values for plotting like Hector data
+data_long$year <- rep(1:10, times = 4)
+
+# add run numbers to importance df
+importance_val$key <- paste0("run", 1:4) 
+
+# merge the data to the importance_vl df which contains wt
+data_result <- merge(data_long, importance_val, by = "key")
+
+```
+
+Finally I plot the results and color code each by their weight produced by the random forest model:
+
+```{r}
+plot_test <- ggplot(data = data_result) +
+  geom_line(aes(x = year, y = value, 
+                group = key,
+                color = wt),
+            linewidth = 1)+
+  scale_color_gradient(high = "dodgerblue4", low = 'lightblue1')+
+  theme_light()
+
+# add observed data
+data_t$year <- 1:10
+
+plot_test + 
+    geom_line(data = data_t, aes(x = year, y = observed),
+                color =  'red',
+                linewidth = 1)
+  
+```
+____
+
+Same analysis as above, but using hector simulated data:
+
+```{r}
+# read in sample hector data in a format that can be used in the rf model 
+data <- read.csv("data/new_hector_data.csv")[-1]
+
+# Extract the observed data column and model run columns
+set.seed(2)
+rf <- randomForest(value_obs ~ ., data = data, ntree = 100000, importance = T)
+
+# importance value extraction from the random forest model
+importance_val <- data.frame(importance(rf, type = 1))
+# normalizing the importance value so that it can serve as a weight
+importance_val$norm <- importance_val$X.IncMSE / sum(importance_val$X.IncMSE)
+importance_val$run_number <- 1:nrow(importance_val)
+
+# read in normal hector output and observed data for plotting
+hector_data <- read.csv("data/hector_result.csv")[-1]
+observed <- read.csv("data/co2_obs.csv")[-1]
+
+# merge hector outpuit with importance values to use as weights
+hector_data.res <- merge(hector_data, importance_val, by = "run_number")
+
+# plot the results
+plot_test <- ggplot(data = hector_data.res) +
+  geom_line(aes(x = year, y = value, 
+                group = run_number,
+                color = norm),
+            linewidth = 1)+
+  scale_color_gradient(high = "dodgerblue4", low = 'lightblue1') +
+  geom_line(data = observed, aes(x = year, y = co2_ppm),
+            color =  'red',
+            linewidth = 1) +
+  theme_light()
+plot_test
+```

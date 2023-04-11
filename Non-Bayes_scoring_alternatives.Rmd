@@ -2,7 +2,9 @@
 title: "Non-Bayes Scoring Options"
 author: "Joe Brown"
 date: "2023-03-22"
-output: html_document
+output:
+  word_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -21,9 +23,9 @@ The test statistic (D) is the maximum difference between the two eCDFs (i.e., th
 
 Exact p-values can be computed for small sample sizes. Alternatively, Monte Carlo simulated p-values can be computed. In this method, a random sample of data sets (`B`) is generated from a uniform distribution with the same sample size as the data sets being compared (modeled vs observed data). The KS test is then performed on each random sample, and the proportion of test statistics (D) that are at least as extreme as the observed test statistic is calculated - this proportion is the p-value estimate. 
 
-The p-value is thus an estimate of the number of times the simulated data sets with a maximum difference equal to ore greater than the maximum difference (D) of the eCDFs being tested. If the p-value is large, then we favor the null hypothesis that the model predicted sample and observed data sample come from the same distribution, and thus the model may be a good fit for the data.
-
 Here is an example of eCDFs for Hector CO2 data plotted against the eCDF of the observed data. The black line represents the observed CO2 data, the red line represents model projected values that are not a good fit (higher max D), and blue line represents model projected values that are a good fit (lower max D). 
+
+Using a standardized `D` value could serve as an option for scoring model runs based on their eCDF proximity to observed data.
 
 ```{r}
 ## Reading in sample data 
@@ -50,7 +52,7 @@ plot(ecdf_10, verticals=TRUE, do.points=FALSE, add=TRUE, col='blue')
 
 A KS test can be run using `ks.test` in the `stats` package.
 
-As an example, I show how we can use an `iterate_hector` output to calculate D and p-values to quantify similarity between model projected variables and observed variables.
+As an example, I show how we can use an `iterate_hector` output to calculate `D` to quantify similarity between model projected variables and observed variables.
 
 ```{r}
 ## Reading in sample data 
@@ -93,11 +95,15 @@ ks_score <- function(x, obs) {
 
 In the function above I set `simulate.p.value = T` and set the Monte Carlo replicate number to 10000 with `B = 10000`.
 
-When I run the above function with our data, the result will be a df with as many rows as there are runs in the iterate_hector result. For each run I save the D and p-value of the KS test between each run and the observed data.
+When I run the above function with our data, the result will be a df with as many rows as there are runs in the `iterate_hector result`. For each run I save the `D` and `p-value` of the KS test between each run and the observed data.
+
+I use the test statistic `D` to compute normalized weights from 0-1 where models that are less similar to the observed data have a value closer to 0.
 
 ```{r}
 # Run ks_score() with example data
 ks_score <- ks_score(hector_data, obs)
+ks_score$inv <- 1 / (ks_score$statistic)
+ks_score$wt <- ks_score$inv / sum(ks_score$inv)
 
 # Add run numbers for merge to full data frame
 ks_score$run_number <- 1:nrow(ks_score)
@@ -114,14 +120,14 @@ head(hector_data.ks)
 
 After running the function, I merge the test statistics (D) and p-values to the Hector data frame.
 
-Here I plot the `ks_scores`. I plot all runs and color them based on their p-values. I color the observed data in red to show how runs with data more similar to the observed data have higher p-values (lower maximum D).
+Here I plot the `ks_scores`. I plot all runs and color them based on their wt. I color the observed data in red to show how runs with data more similar to the observed data have higher p-values (lower maximum D).
 
 ```{r, Figure 3}
 library(ggplot2)
 plot_ks <- ggplot(data = hector_data.ks) +
   geom_line(aes(x = year, y = value, 
                 group = run_number,
-                color = p.value),
+                color = wt),
             linewidth = 1)+
   scale_color_gradient(high = "dodgerblue4", low = 'lightblue1') +
   geom_line(data = obs, aes(x = year, y = co2_ppm),
@@ -189,9 +195,13 @@ cvm_score <- function(x, obs) {
 
 In the function above I highlight that I want to run 10000 bootstrap iterations (`nboots = 10000`).
 
+Similar to above, I use the test statistic `D` to compute normalized weights from 0-1 where models that are less similar to the observed data have a value closer to 0.
+
 ```{r}
 # Run ks_score() with example data
 cvm_score <- cvm_score(hector_data, obs)
+cvm_score$inv <- 1 / (cvm_score$Stat)
+cvm_score$wt <- cvm_score$inv / sum(cvm_score$inv)
 
 # Add run numbers for merge to full data frame
 cvm_score$run_number <- 1:nrow(cvm_score)
@@ -206,17 +216,15 @@ cvm_score
 head(hector_data.cvm)
 ```
 
-Our results from the df of cvm_scores provides the CVM test statistic and the calculated p-values.
+Our results from the df of cvm_scores provides the CVM test statistic, calculated p-values, and normalized weights.
 
-I merge the test statistics (Stat) and p-values (p_val) to the Hector data frame.
-
-Similar to figure 3 above, I can plot `cvm_scores`. When I plot all runs and color them based on their p-values, we can see that model runs with high p-values from the CVM analysis are closer to the observed data (red) and are darker shades of blue. 
+Similar to figure 3 above, I can plot `cvm_scores`. When I plot all runs and color them based on their weights, we can see that model runs with high weight from the CVM analysis are closer to the observed data (red) and are darker shades of blue. 
 
 ```{r}
 plot_cvm <- ggplot(data = hector_data.cvm) +
   geom_line(aes(x = year, y = value, 
                 group = run_number,
-                color = p_val),
+                color = wt),
             linewidth = 1)+
   scale_color_gradient(high = "dodgerblue4", low = 'lightblue1') +
   geom_line(data = obs, aes(x = year, y = co2_ppm),

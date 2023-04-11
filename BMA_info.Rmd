@@ -356,8 +356,8 @@ bmao_large <- bms(results,
              mprior = "uniform", 
              user.int = F,
              g = "UIP",
-             burn = 500000,
-             iter = 1000000,
+             burn = 5000,
+             iter = 10000,
              nmodel = 2000,
              mcmc = "bd")
 
