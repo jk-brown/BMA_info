@@ -206,17 +206,19 @@ bayes_wts <- function(x) {
   # Currently only computing posterior scores using uniform prior.
   # uniform prior is calculated as 1/length(likelihood) which is 
   # the same as 1 / # of runs.
-  posterior = likelihood * 1 / length(likelihood)
+  posterior = likelihood * (1 / length(likelihood))
   
   # Computes posterior probabilities - normalized posterior weights. 
   # Will sum to 1 and there for get significantly smaller as number 
   # of runs increases.
   posterior_probs = posterior / sum(posterior)
   
-  # Create data frame of results
+  # Create data frame of results - get run_numbers from the list where RMSE values
+  # are computed (names of the split_list components)
   bayes_wts_result <- data.frame(RMSE = rmse_bind,
                                  posterior_vals = posterior,
-                                 posterior_prob = posterior_probs)
+                                 posterior_prob = posterior_probs,
+                                 run_number = names(rmse_vals))
   
   return(bayes_wts_result)
 }
@@ -232,6 +234,15 @@ set.seed(1000)
 params <- generate_params(core, 100)
 h_result <- iterate_hector(core, params, save_years = 1959:2021, save_vars = CONCENTRATIONS_CO2())
 
+# adding in a run_zero; run with values that match obs
+run_zero <- data.frame(scenario = h_result$scenario,
+                       year = criterion_co2_obs()$years,
+                       variable = h_result$variable,
+                       value = criterion_co2_obs()$obs_values,
+                       units = h_result$units,
+                       run_number = 0)
+h_result <- rbind(h_result, run_zero)
+
 result_data <- score_hruns_ed(h_result, criterion_co2_obs(), bayes_wts)
 ```
 
@@ -243,6 +254,6 @@ ggplot(data = result_data, aes(x = RMSE, y = posterior_prob)) +
   geom_point(size = 2)
 ```
 
-Figure shows model iterations as points along a line of decreasing score as the average model departure from observations increases (as RMSE increases).
+Figure shows model iterations as points along a line of decreasing score as the average model departure from observations increases (as RMSE increases). The run with the highest socre in this example is `run_zero` -- or a run that is identical to the observed data set and therefore has RMSE = 0.0.
 
 
