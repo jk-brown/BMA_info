@@ -19,6 +19,7 @@ I present the functions in steps and complete with how the functions are integra
 
 Producing Hector data:
 ```{r}
+library(matilda)
 # build example data frame from Hector ssp 245 core
 core <- newcore(system.file("input/hector_ssp245.ini", package = "hector"))
 
@@ -88,7 +89,7 @@ bayes_wts <- function(x) {
   
 ```
 
-Once we have RMSE values computed for the data frame, we can use them to compute a likelihood function. This likelihood function will be used to compute posterior probabilities. 
+Once we have RMSE values computed for the df, we can use them to compute a likelihood function. This likelihood function will eventually be used to compute posterior probabilities. 
 
 ```{r, eval=FALSE}
  # Compute likelihood using normal distribution likelihood function.
@@ -103,156 +104,59 @@ This is a normal distribution likelihood function. The RMSE values in `rmse_bind
 
 This formula is a modified version of the likelihood function used in Massoud et al. 2020, who use BMA weights (where we use RMSE).
 
+The `-0.5` is a constant that appears in the density function of a normal distribution. This will produce a negative value (`-0.5 * (rmse_bind) ^ 2`). 
 
+The purpose of `exp()` is to transform the negative term into a positive term between 1-0 that can be interpreted as a likelihood, which should be proportional to a probability. 
+
+Example:
+
+RMSE = 0.0 (perfect fit - high likelihood of predicting observed data)
+
+`-0.5 * 0^2 = 0`
+
+`exp(0) = 1`
+
+RMSE = 0.5 (relatively good fit - high likelihood of predicting observed data)
+
+`-0.5 * 0.5^2 = -0.125`
+
+`exp(-0.125) = 0.88`
+
+When we have likelihood values (under our given assumptions), we can use it to compute unnormalized posterior values. This is the posterior scores when we incorporate prior knowledge of the model distribution.
+
+```{r}
+ # Computing unnormalized posterior scores 
+  # Currently only computing posterior scores using uniform prior.
+  # uniform prior is calculated as 1/length(likelihood) which is 
+  # the same as 1 / # of runs.
+  
+  posterior = likelihood * (1 / length(likelihood))
+
+```
 
 Currently the prior is uniform based on the number of runs. For now the prior is uniform (ex. 1/10). Prior is based on the number of runs because this function will be integrated within another function. If a separated vector is being used it would take the form of `prior = 1/length(x)`.
 
-```{r}
-# Computing posterior scores
-# x = vector of projected values
-# y = vector of observed values
-# prior = sets priors for the posterior score calculations. 
+It might be better if we compute a marginal likelihood -- haven't looked into this in depth, but think this paper will have some useful information -- https://doi.org/10.1093/biomet/asz077.
 
-bayes_post <- function(x, y, prior = 1/max(x)) {
-  
-  # compute RMSE for each model iteration compared to observed data.
-  # RMSE will be used as the sigma in the likelihood function.
-  rmse_val = sqrt(mean((x - y)^2))
-  
-  # Compute likelihood using normal distribution likelihood function.
-  # This is the probability of observing the modeled data given the 
-  # observed data
-  likelihood = exp(-0.5 * (rmse_val)^2)
-  
-  # Computes the unnormalized posterior scores 
-  posterior = likelihood * prior
-  
-  return(posterior)
-
-}
-```
-
-Important notes about `bayes_post`:
-
-The likelihood function makes important assumptions. 
-
-It assumes residuals are normally distributed with 0-mean and constant variance. Here, we are specifying a normal distribution with mean 0 and sd = RMSE.
-
-This is a common assumption of statistical models and can make for a good starting point.
-
-Here is an example of how `bayes_post` works with data similar to a `iterate_hector` result. 
+With these posterior values, we can compute normalized posterior probabilities:
 
 ```{r}
-# Example df
-set.seed(100)
-data_test <-
-  data.frame(year = 1:4,
-             value = runif(12),
-             run_number = rep(1:3, each = 4))
-
-# Example obs data
-obs_test <-
-  data.frame(year = 1:4,
-             obs_val = runif(4))
-
-# split data_test into dfs by run_number
-split_list <- split(data_test, data_test$run_number)
-
-# apply bayes_post using x = dfs in split_list and y = obs_test$obs
-test_result <- lapply(split_list, function(df) {
-  bayes_post(x = df$value, y = obs_test$obs_val)
-})
-
-# result are the unnormalized posterior score for each df in split_list.
+ # Computes posterior probabilities - normalized posterior weights. 
+  # Will sum to 1 and there for get significantly smaller as number 
+  # of runs increases.
+  posterior_probs = posterior / sum(posterior)
+  
+  # Create data frame of results - get run_numbers from the list where RMSE values
+  # are computed (names of the split_list components)
+  bayes_wts_result <- data.frame(RMSE = rmse_bind,
+                                 posterior_vals = posterior,
+                                 posterior_prob = posterior_probs,
+                                 run_number = names(rmse_vals))
+  
+  return(bayes_wts_result)
 ```
 
-I `bayes_post` in a new function `bayes_wts` which splits its sole argument (a df from `score_hruns`) by `run_number`, computes posterior scores with `bayes_post`, and normalizes to produce posterior probabilities for each run.
-
-This is the architecture of `bayes_wts`:
-
-```{r}
-# x = a subsetted df with a column added for obs data (result from steps in score_hruns)
-bayes_wts <- function(x) {
-  
-  # split results by run_number
-  split_list = split(x, x$run_number)
-  
-  # compute posterior scores for each run using bayes_post
-  posterior_calc <- lapply(split_list, function(df) {
-    bayes_post(x = df$value, y = df$value)
-  })
-  
-  # bind rows of the posterior_calc results and label column "post_vals"
-  post_results <- data.frame(
-    post_vals = do.call(rbind, posterior_calc))
-  
-  # Add column "post_prob" and normalize posterior scores -> rows sum to 1
-  post_results$post_prob <- post_results$post_vals/sum(post_results$post_vals)
-  
-  return(post_results)
-}
-```
-
-`bayes_wts` can serve as the `scoring_function` in a version of `score_hruns`. 
-
-```{r}
-# x = df of iterate_hector result, here = h_dat
-# criterion = criterion used for scoring, here = crit (a df read-in above)
-# scoring_function = function used to produce wts 
-score_hruns_ed <- function(x, criterion, score_function,...) {
-
-  # subset to include years for CO2 screening
-  x_subset <- subset(x, x$year %in% criterion$years & x$variable == criterion$var)
-
-  # creates observed data frame
-  obs_dat <- data.frame(year = criterion$year, value_obs = criterion$obs_values)
-
-  # merge hector results with calibration data observed CO2 data
-  x_merge <- merge(x_subset, obs_dat, by = 'year')
-
-  # use x_merge as input for `bayes_wts` -> score_function  
-  run_wts <- score_function(x_merge)
-  
-  return(run_wts) 
-}
-
-```
-
-Here, `score_hruns` is edited because: 
-
-1.  We are using an imported data frame rather than a criterion (which is the workflow in `matilda`). To avoid errors I removed the error messages.
-
-2. `bayes_post` produces single values based on the distributions of the residuals, rather than a mean of absolute differences for each individual data point (final piece of `score_hruns`). Therefore the aggregation step in orginal `score_hruns` is removed.
-
-3. There are a few lines that needed edited to match the sample observed data being read into the df using `read.csv`. In `matilda` this won't be the case because the observed data will be retrieved from the criterion. 
-____
-
-The above pieces breakdown the basic concept of what I am trying to do, but the code is a little complicated and does not work all that well in application. 
-
-We need to build a function to compute RMSE when given two vectors (predicted data and observed data):
-
-```{r}
-# function to compute RMSE values
-# x = predicted data
-# y = observed data
-
-RMSE_calc <- function(x, y) {
-  
-  # compute RMSE
-  rmse_vals = sqrt(mean((x - y)^2))
-  
-  # return a vector of RMSE values
-  return(rmse_vals)
-  
-}
-```
-
-There are functions in `R` that already compute RMSE but we would have to import another package. It is just as easy to build my own.
-
-Here, I re-format the code above to give a single Bayesian weights function that reduces the complexity and will and will produce a df with RMSE, posterior_vals (unnormalized posterior scores), and posterior_probs (posterior probabilities for each run).
-
-The function will be able to be read into `score_hruns`. 
-
+The full `bayes_wts` function looks like this:
 ```{r}
 # Function to compute bayes_wts
 # x = merged df that is produced in score_hruns
@@ -299,46 +203,72 @@ bayes_wts <- function(x) {
 
 ```
 
-I can use `bayes_wts` as the `score_function` argument in `score_hruns` with sample data:
+and can be used as the `score_function` in `score_hruns`:
+
+```{r}
+# x = df of iterate_hector result, here = h_dat
+# criterion = criterion used for scoring, here = crit (a df read-in above)
+# scoring_function = function used to produce wts 
+score_hruns_ed <- function(x, criterion, score_function,...) {
+
+  # subset to include years for CO2 screening
+  x_subset <- subset(x, x$year %in% criterion$years & x$variable == criterion$var)
+
+  # creates observed data frame
+  obs_dat <- data.frame(year = criterion$year, value_obs = criterion$obs_values)
+
+  # merge hector results with calibration data observed CO2 data
+  x_merge <- merge(x_subset, obs_dat, by = 'year')
+
+  # use x_merge as input for `bayes_wts` -> score_function  
+  run_wts <- score_function(x_merge)
+  
+  return(run_wts) 
+}
+
+```
+
+Here, `score_hruns` is edited because: 
+
+1.  We are using an imported data frame rather than a criterion (which is the workflow in `matilda`). To avoid errors I removed the error messages.
+
+2. `bayes_post` produces single values based on the distributions of the residuals, rather than a mean of absolute differences for each individual data point (final piece of `score_hruns`). Therefore the aggregation step in orginal `score_hruns` is removed.
+
+3. There are a few lines that needed edited to match the sample observed data being read into the df using `read.csv`. In `matilda` this won't be the case because the observed data will be retrieved from the criterion. 
+____
+
+Here is an exmaple of using `bayes_wts` as the `score_function` argument in `score_hruns` with sample data:
 
 ```{r, message=FALSE}
-# build example data frame from hector (100 runs)
-core <- newcore(system.file("input/hector_ssp245.ini", package = "hector"))
+# scoring h_runs
 
-set.seed(123)
-params <- generate_params(core, 10)
+scored_data <- score_hruns_ed(h_result, criterion_co2_obs(), bayes_wts)
 
-h_result <- iterate_hector(core, params, save_years = 1959:2021, save_vars = CONCENTRATIONS_CO2())
-
-# adding in a run_zero; run with values that match obs
-run_zero <- data.frame(scenario = h_result$scenario,
-                       year = criterion_co2_obs()$years,
-                       variable = h_result$variable,
-                       value = criterion_co2_obs()$obs_values,
-                       units = h_result$units,
-                       run_number = 0)
-
-h_result <- rbind(h_result, run_zero)
-
-result_data <- score_hruns_ed(h_result, criterion_co2_obs(), bayes_wts)
+print(scored_data)
 ```
 
 With the data in `result_data` I can plot the decay of model scores as RMSE increases (as mean departure increases).
 
 ```{r}
 library(ggplot2)
-ggplot(data = result_data, aes(x = RMSE, y = posterior_prob)) +
+ggplot(data = scored_data, aes(x = RMSE, y = posterior_prob)) +
   geom_line(color = "blue")+
-  geom_point(size = 2)
+  geom_point(size = 2) +
+  theme_light()
 ```
 
 Figure shows model iterations as points along a line of decreasing score as the average model departure from observations increases (as RMSE increases). The run with the highest socre in this example is `run_zero` -- or a run that is identical to the observed data set and therefore has RMSE = 0.0.
 
+____
 
-Function using gaussian distribution:
+Experimenting with other ideas:
+
+It is also possible to edit the function to use a normal distribution of the observed data as the prior -- this would give higher weight to models that are closer to the distribution of the observed data. Assuming the observed data are are normally distrbuted 
+
+Function using Gaussian distribution:
 
 ```{r}
-bayes_wts <- function(x) {
+bayes_wts_norm_prior <- function(x) {
   
   # split the x data frame by model run_number 
   split_list = split(x, x$run_number)
@@ -360,7 +290,7 @@ bayes_wts <- function(x) {
   # Computing unnormalized posterior scores 
   # Compute prior using Gaussian distribution with mean set to the mean of the observed data
   prior_mean = mean(x$value_obs)
-  prior_sd = sd(x$value_obs) # set the prior standard deviation to 1 for simplicity
+  prior_sd = sd(x$value_obs) # set the prior standard deviation to obs
   prior = dnorm(x = rmse_bind, mean = prior_mean, sd = prior_sd)
   posterior = likelihood * prior
   
@@ -379,45 +309,3 @@ bayes_wts <- function(x) {
   return(bayes_wts_result)
 }
 ```
-
-Jefferys prior:
-```{r}
-bayes_wts <- function(x) {
-  
-  # split the x data frame by model run_number 
-  split_list = split(x, x$run_number)
-  
-  # for each of the dfs in the split_list compute RMSE using model predicted 
-  # data and obs_data  
-  rmse_vals = lapply(split_list, function(df) {
-    RMSE_calc(x = df$value, y = df$value_obs)
-  })
-  
-  # rbind the rmse_vals - makes it easier to complete subsequent steps
-  rmse_bind <- do.call(rbind, rmse_vals)
-  
-  # Compute likelihood using normal distribution likelihood function.
-  # This is the probability of observing the modeled data given the 
-  # observed data.
-  likelihood = exp(-0.5 * (rmse_bind) ^ 2)
-  
-  # Compute the Jeffreys prior
-  jeffreys_prior = 1 / sd(x$value_obs)
-  
-  # Computing unnormalized posterior scores 
-  posterior = likelihood * jeffreys_prior
-  
-  # Computes posterior probabilities - normalized posterior weights. 
-  posterior_probs = posterior / sum(posterior)
-  
-  # Create data frame of results - get run_numbers from the list where RMSE values
-  # are computed (names of the split_list components)
-  bayes_wts_result <- data.frame(RMSE = rmse_bind,
-                                 posterior_vals = posterior,
-                                 posterior_prob = posterior_probs,
-                                 run_number = names(rmse_vals))
-  
-  return(bayes_wts_result)
-}
-```
-
