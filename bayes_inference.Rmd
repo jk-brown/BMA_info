@@ -25,10 +25,12 @@ core <- newcore(system.file("input/hector_ssp245.ini", package = "hector"))
 
 # set seed and generate params
 set.seed(123)
-params <- generate_params(core, 100)
+params <- generate_params(core, 10)
 
+start <- Sys.time()
 # run hector - results save years and vars in the obs data for now
-h_result <- iterate_hector(core, params, save_years = 1990:2100, save_vars = CONCENTRATIONS_CO2())
+h_result <- iterate_hector(core, params, save_years = 1959:2021, save_vars = CONCENTRATIONS_CO2())
+print(Sys.time()-start)
 
 # adding in a run_zero; run with values that match obs
 run_zero <- data.frame(scenario = h_result$scenario,
@@ -224,10 +226,9 @@ score_hruns_ed <- function(x, criterion, score_function, e,...) {
   # merge hector results with calibration data observed CO2 data
   x_merge <- merge(x_subset, obs_dat, by = 'year')
 
-  # use x_merge as input for `bayes_wts` -> score_function  
-  run_wts <- score_function(x_merge, e = e)
+  # use x_merge as input for `bayes_wts` -> score_function, return values  
+  return(score_function(x_merge, e = e))
   
-  return(run_wts) 
 }
 
 ```
@@ -248,7 +249,7 @@ Here is an example of using `bayes_wts` as the `score_function` argument in `sco
 ```{r, message=FALSE}
 # scoring h_runs
 
-scored_data <- score_hruns_ed(h_result, criterion_co2_obs(), bayes_wts, e = 2)
+scored_data <- score_hruns_ed(h_result, criterion_co2_obs(), bayes_wts, e = 1.0)
 
 print(scored_data)
 ```
@@ -257,19 +258,28 @@ With the data in `result_data` I can plot the decay of model scores as RMSE incr
 
 ```{r}
 library(ggplot2)
-ggplot(data = scored_data, aes(x = RMSE, y = posterior_prob)) +
+plot <- ggplot(data = scored_data, aes(x = RMSE, y = posterior_prob)) +
   geom_line(color = "blue")+
   geom_point(size = 2) +
+  labs(y = "Likelihood (probability)")+
   theme_light()
+
+ggsave("figure_output/example_scoring_curve.png",
+       plot,
+       device = "png",
+       height = 12,
+       width = 16,
+       units = "cm",
+       dpi = 300)
 ```
 
-Figure shows model iterations as points along a line of decreasing score as the average model departure from observations increases (as RMSE increases). The run with the highest socre in this example is `run_zero` -- or a run that is identical to the observed data set and therefore has RMSE = 0.0.
+Figure shows model iterations as points along a line of decreasing score as the average model departure from observations increases (as RMSE increases). The run with the highest score re in this example is `run_zero` -- or a run that is identical to the observed data set and therefore has RMSE = 0.0.
 
 ____
 
 Experimenting with other ideas:
 
-It is also possible to edit the function to use a normal distribution of the observed data as the prior -- this would give higher weight to models that are closer to the distribution of the observed data. Assuming the observed data are are normally distrbuted 
+It is also possible to edit the function to use a normal distribution of the observed data as the prior -- this would give higher weight to models that are closer to the distribution of the observed data. Assuming the observed data are are normally distributed. 
 
 Function using Gaussian distribution:
 
