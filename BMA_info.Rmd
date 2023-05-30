@@ -449,14 +449,12 @@ wt_projected <- projected %>%
 hector_data <- read.csv("data/hector_result.csv")
 
 # Function that subsets data and converts to wide
-bma_input <- function(df, columns, years, variables){
+bma_input <- function(df, columns = "value"){
   split_list <- split(df, df$run_number)
-  subset <- lapply(split_list, function(x) subset(x, variables == variable &
-                                                  year %in% years,
-                                                  select = columns))
-  df_long <- do.call(cbind, subset)
-  
-  return(df_long)
+  subset <- lapply(split_list, function(x) subset(x, select = columns))
+  df_wide <- do.call(cbind, subset)
+  colnames(df_wide) <- NULL
+  return(as.matrix(df_wide))
 }
 
 test <- bma_input(hector_data, 
